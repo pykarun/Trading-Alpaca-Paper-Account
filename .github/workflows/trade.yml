@@ -3,7 +3,10 @@ name: Run Alpaca Trader
 on:
   schedule:
     # Run daily at 9:30 AM ET (14:30 UTC)
-    - cron: '30 14 * * 1-5'  # Monday to Friday
+    # - cron: '30 14 * * 1-5'  # Monday to Friday
+    # For testing: run every minute Monday to Friday
+    - cron: '*/1 * * * 1-5'  # Every minute, Mon-Fri
+    # For trading hours only: - cron: '*/1 14-21 * * 1-5'  # Every minute 14:00-21:59 UTC (9:30 AM - 4 PM ET approx)
   workflow_dispatch:  # Allow manual trigger
 
 jobs:
