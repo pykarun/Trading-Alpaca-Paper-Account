@@ -523,8 +523,12 @@ def run_loop(ema_fast: int, ema_slow: int, stop_pct: float, capital: float, inte
 
 
 def main():
-    # Simplified runner: no command-line options. Always run live and loop.
-    run_loop(EMA_FAST, EMA_SLOW, STOP_LOSS_PCT, INITIAL_CAPITAL, DEFAULT_LOOP_INTERVAL, live=True, dry_run=False)
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == '--once':
+        run_once(EMA_FAST, EMA_SLOW, STOP_LOSS_PCT, INITIAL_CAPITAL, live=True, dry_run=False)
+    else:
+        # Simplified runner: no command-line options. Always run live and loop.
+        run_loop(EMA_FAST, EMA_SLOW, STOP_LOSS_PCT, INITIAL_CAPITAL, DEFAULT_LOOP_INTERVAL, live=True, dry_run=False)
 
 
 if __name__ == '__main__':
