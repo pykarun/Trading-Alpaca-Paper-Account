@@ -112,9 +112,13 @@ def submit_order_alpaca(symbol: str, qty: float = 0, side: str = 'buy', notional
     
     Args:
         symbol: Stock ticker symbol
-        qty: Number of shares (used for SELL orders)
+        qty: Number of shares (used for SELL orders, must be > 0 when side='sell')
         side: 'buy' or 'sell'
-        notional: Dollar amount to invest (used for BUY orders)
+        notional: Dollar amount to invest (used for BUY orders, must be > 0 when side='buy')
+    
+    Raises:
+        ValueError: If notional <= 0 for BUY orders or qty <= 0 for SELL orders
+        RuntimeError: If Alpaca credentials not configured or order submission fails
     """
     if not ALPACA_API_KEY or not ALPACA_API_SECRET:
         raise RuntimeError('Alpaca credentials not configured')
@@ -127,7 +131,7 @@ def submit_order_alpaca(symbol: str, qty: float = 0, side: str = 'buy', notional
             raise ValueError(f'Notional amount {notional} is invalid, cannot submit BUY order')
         payload = {
             'symbol': symbol,
-            'notional': f'{notional:.2f}',
+            'notional': round(notional, 2),  # Alpaca API expects numeric value
             'side': side,
             'type': 'market',
             'time_in_force': 'day'  # notional orders require 'day' time_in_force
