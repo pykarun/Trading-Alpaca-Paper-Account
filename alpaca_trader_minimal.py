@@ -166,11 +166,9 @@ def submit_order_alpaca(symbol: str, qty: float = 0, side: str = 'buy', notional
 
 
 def get_alpaca_account_cash() -> float:
-    """Return available buying power from Alpaca account as float.
+    """Return available cash from Alpaca account as float.
 
-    Uses buying_power (not cash) because it reflects the actual funds available
-    for placing orders, accounting for unsettled funds, existing positions,
-    and pending orders.
+    Uses cash (not buying_power) to only use actual settled cash available.
 
     Raises on HTTP/network errors. Caller should handle exceptions and fall
     back to simulated capital if necessary.
@@ -181,12 +179,9 @@ def get_alpaca_account_cash() -> float:
     resp = requests.get(url, headers=_alpaca_headers(), timeout=10)
     resp.raise_for_status()
     j = resp.json()
-    # prefer buying_power over cash; buying_power reflects actual available
-    # funds for orders (accounts for unsettled funds, positions, pending orders)
-    bp = j.get('buying_power')
     cash = j.get('cash')
     try:
-        return float(bp) if bp is not None else float(cash)
+        return float(cash)
     except Exception:
         # If parsing failed, raise to signal caller to fallback
         raise
@@ -523,18 +518,18 @@ def run_once(ema_fast: int, ema_slow: int, stop_pct: float, capital: float, live
     if live:
         try:
             capital_local = float(get_alpaca_account_cash())
-            account_info = f'Buying Power: ${capital_local:.2f}'
+            account_info = f'Cash: ${capital_local:.2f}'
             if position_shares > 0:
                 account_info += f' | Position: {position_shares:.2f} shares @ ${entry_price:.2f}, Peak: ${cur_peak:.2f}, Current: ${tqqq_price:.2f}, Stop: ${cur_stop:.2f}, Drawdown: {drawdown_pct:.2f}%'
             logger.info('=== Account Info ===\n%s', account_info)
         except Exception as e:
-            logger.warning('Could not read Alpaca account buying power, using provided capital %.2f: %s', capital_local, e)
+            logger.warning('Could not read Alpaca account cash, using provided capital %.2f: %s', capital_local, e)
 
     # Execute orders if signal indicates and we are in live mode (and not dry-run)
     if signal == 'BUY':
         # Use notional (dollar-based) orders to avoid "insufficient buying power" errors
         # Alpaca will handle the exact share calculation including fractional shares
-        budget = capital_local  # invest all available buying power
+        budget = capital_local  # invest all available cash
         estimated_shares = budget / tqqq_price if tqqq_price > 0 else 0
         if budget > 0:
             logger.info('=== Order Action ===\nAction: BUY, Notional: $%.2f, Symbol: %s, Price: %.2f, Est. Shares: %.4f', budget, SYMBOL_TQQQ, tqqq_price, estimated_shares)
