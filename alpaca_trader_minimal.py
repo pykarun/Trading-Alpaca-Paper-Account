@@ -115,10 +115,11 @@ def submit_order_alpaca(symbol: str, qty: float, side: str = 'buy') -> dict:
         # Use the exact quantity for sells to fully liquidate position
         if qty <= 0:
             raise ValueError(f'Quantity {qty} is invalid, cannot submit')
-        qty_str = str(qty)
+        # Format as decimal string to avoid scientific notation issues with API
+        qty_str = f'{qty:.8f}'.rstrip('0').rstrip('.')
     else:
-        # For buys, use whole shares
-        qty_int = int(qty)
+        # For buys, use whole shares (floor to ensure we don't exceed available cash)
+        qty_int = int(math.floor(qty))
         if qty_int <= 0:
             raise ValueError(f'Quantity {qty} rounds to {qty_int}, cannot submit')
         qty_str = str(qty_int)
