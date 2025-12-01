@@ -133,7 +133,17 @@ def submit_order_alpaca(symbol: str, qty: float, side: str = 'buy') -> dict:
         'time_in_force': 'gtc'
     }
     resp = requests.post(url, headers=_alpaca_headers(), json=payload, timeout=10)
-    resp.raise_for_status()
+    try:
+        resp.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        # Extract error message from response body for better diagnostics
+        error_msg = ''
+        try:
+            error_body = resp.json()
+            error_msg = error_body.get('message', str(error_body))
+        except Exception:
+            error_msg = resp.text
+        raise RuntimeError(f'Order submission failed: {e}. Details: {error_msg}') from e
     return resp.json()
 
 
@@ -505,8 +515,11 @@ def run_once(ema_fast: int, ema_slow: int, stop_pct: float, capital: float, live
         if qty > 0:
             logger.info('=== Order Action ===\nAction: BUY, Qty: %.0f, Symbol: %s, Price: %.2f, Budget: %.2f', qty, SYMBOL_TQQQ, tqqq_price, budget)
             if live and not dry_run:
-                order = submit_order_alpaca(SYMBOL_TQQQ, qty, side='buy')
-                logger.info('Order Submitted: BUY, ID: %s', order.get('id'))
+                try:
+                    order = submit_order_alpaca(SYMBOL_TQQQ, qty, side='buy')
+                    logger.info('Order Submitted: BUY, ID: %s', order.get('id'))
+                except (RuntimeError, requests.exceptions.RequestException) as e:
+                    logger.error('Order Failed: BUY, Symbol: %s, Qty: %.0f, Error: %s', SYMBOL_TQQQ, qty, e)
             else:
                 logger.info('Dry Run: BUY not submitted')
         else:
@@ -527,8 +540,11 @@ def run_once(ema_fast: int, ema_slow: int, stop_pct: float, capital: float, live
             if qty > 0:
                 logger.info('=== Order Action ===\nAction: SELL, Qty: %.4f, Symbol: %s, Price: %.2f', qty, SYMBOL_TQQQ, tqqq_price)
                 if live and not dry_run:
-                    order = submit_order_alpaca(SYMBOL_TQQQ, qty, side='sell')
-                    logger.info('Order Submitted: SELL, ID: %s', order.get('id'))
+                    try:
+                        order = submit_order_alpaca(SYMBOL_TQQQ, qty, side='sell')
+                        logger.info('Order Submitted: SELL, ID: %s', order.get('id'))
+                    except (RuntimeError, requests.exceptions.RequestException) as e:
+                        logger.error('Order Failed: SELL, Symbol: %s, Qty: %.4f, Error: %s', SYMBOL_TQQQ, qty, e)
                 else:
                     logger.info('Dry Run: SELL not submitted')
             else:
