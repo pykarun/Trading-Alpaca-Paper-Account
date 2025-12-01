@@ -96,16 +96,21 @@ def get_latest_trade_from_alpaca(symbol: str) -> float:
         raise
 
 
-def submit_order_alpaca(symbol: str, notional: float, side: str = 'buy') -> dict:
-    qty_int = int(round(notional))
+def submit_order_alpaca(symbol: str, qty: float, side: str = 'buy') -> dict:
+    """Submit a market order to Alpaca.
+    
+    For BUY orders, qty is the number of shares to purchase.
+    For SELL orders, qty is the number of shares to sell.
+    """
+    qty_int = int(round(qty))
     if qty_int <= 0:
-        raise ValueError(f'Notional {notional} rounds to {qty_int}, cannot submit')
+        raise ValueError(f'Quantity {qty} rounds to {qty_int}, cannot submit')
     if not ALPACA_API_KEY or not ALPACA_API_SECRET:
         raise RuntimeError('Alpaca credentials not configured')
     url = f"{ALPACA_BASE_URL}/v2/orders"
     payload = {
         'symbol': symbol,
-        'notional': notional,
+        'qty': str(qty_int),
         'side': side,
         'type': 'market',
         'time_in_force': 'gtc'
