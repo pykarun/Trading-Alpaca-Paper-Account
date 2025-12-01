@@ -100,38 +100,56 @@ def get_latest_trade_from_alpaca(symbol: str) -> float:
         raise
 
 
-def submit_order_alpaca(symbol: str, qty: float, side: str = 'buy') -> dict:
+def submit_order_alpaca(symbol: str, qty: float = 0, side: str = 'buy', notional: float = 0) -> dict:
     """Submit a market order to Alpaca.
     
-    For BUY orders, qty is the number of whole shares to purchase.
-    For SELL orders, qty can include fractional shares to fully exit a position.
+    For BUY orders, use `notional` parameter to specify dollar amount to invest.
+    This avoids "insufficient buying power" errors by letting Alpaca handle the
+    exact share quantity calculation (including fractional shares).
+    
+    For SELL orders, use `qty` to specify the exact number of shares to sell
+    (including fractional shares to fully exit a position).
+    
+    Args:
+        symbol: Stock ticker symbol
+        qty: Number of shares (used for SELL orders, must be > 0 when side='sell')
+        side: 'buy' or 'sell'
+        notional: Dollar amount to invest (used for BUY orders, must be > 0 when side='buy')
+    
+    Raises:
+        ValueError: If notional <= 0 for BUY orders or qty <= 0 for SELL orders
+        RuntimeError: If Alpaca credentials not configured or order submission fails
     """
     if not ALPACA_API_KEY or not ALPACA_API_SECRET:
         raise RuntimeError('Alpaca credentials not configured')
     
-    # For SELL orders, use exact quantity to fully exit position (including fractional shares)
-    # For BUY orders, use whole shares only
-    if side == 'sell':
-        # Use the exact quantity for sells to fully liquidate position
+    url = f"{ALPACA_BASE_URL}/v2/orders"
+    
+    if side == 'buy':
+        # Use notional (dollar-based) orders for BUY to avoid buying power issues
+        if notional <= 0:
+            raise ValueError(f'Notional amount {notional} is invalid, cannot submit BUY order')
+        payload = {
+            'symbol': symbol,
+            'notional': round(notional, 2),  # Alpaca API expects numeric value
+            'side': side,
+            'type': 'market',
+            'time_in_force': 'day'  # notional orders require 'day' time_in_force
+        }
+    else:
+        # For SELL orders, use exact quantity to fully exit position (including fractional shares)
         if qty <= 0:
-            raise ValueError(f'Quantity {qty} is invalid, cannot submit')
+            raise ValueError(f'Quantity {qty} is invalid, cannot submit SELL order')
         # Format as decimal string to avoid scientific notation issues with API
         qty_str = f'{qty:.8f}'.rstrip('0').rstrip('.')
-    else:
-        # For buys, use whole shares (floor to ensure we don't exceed available cash)
-        qty_int = int(math.floor(qty))
-        if qty_int <= 0:
-            raise ValueError(f'Quantity {qty} rounds to {qty_int}, cannot submit')
-        qty_str = str(qty_int)
+        payload = {
+            'symbol': symbol,
+            'qty': qty_str,
+            'side': side,
+            'type': 'market',
+            'time_in_force': 'day'  # use 'day' for consistency with fractional trading
+        }
     
-    url = f"{ALPACA_BASE_URL}/v2/orders"
-    payload = {
-        'symbol': symbol,
-        'qty': qty_str,
-        'side': side,
-        'type': 'market',
-        'time_in_force': 'gtc'
-    }
     resp = requests.post(url, headers=_alpaca_headers(), json=payload, timeout=10)
     try:
         resp.raise_for_status()
@@ -514,17 +532,18 @@ def run_once(ema_fast: int, ema_slow: int, stop_pct: float, capital: float, live
 
     # Execute orders if signal indicates and we are in live mode (and not dry-run)
     if signal == 'BUY':
-        # Use floor to ensure we buy the maximum whole shares possible with available cash
-        qty = math.floor(capital_local / tqqq_price)
-        budget = qty * tqqq_price
-        if qty > 0:
-            logger.info('=== Order Action ===\nAction: BUY, Qty: %.0f, Symbol: %s, Price: %.2f, Budget: %.2f', qty, SYMBOL_TQQQ, tqqq_price, budget)
+        # Use notional (dollar-based) orders to avoid "insufficient buying power" errors
+        # Alpaca will handle the exact share calculation including fractional shares
+        budget = capital_local  # invest all available buying power
+        estimated_shares = budget / tqqq_price if tqqq_price > 0 else 0
+        if budget > 0:
+            logger.info('=== Order Action ===\nAction: BUY, Notional: $%.2f, Symbol: %s, Price: %.2f, Est. Shares: %.4f', budget, SYMBOL_TQQQ, tqqq_price, estimated_shares)
             if live and not dry_run:
                 try:
-                    order = submit_order_alpaca(SYMBOL_TQQQ, qty, side='buy')
+                    order = submit_order_alpaca(SYMBOL_TQQQ, side='buy', notional=budget)
                     logger.info('Order Submitted: BUY, ID: %s', order.get('id'))
                 except (RuntimeError, requests.exceptions.RequestException) as e:
-                    logger.error('Order Failed: BUY, Symbol: %s, Qty: %.0f, Error: %s', SYMBOL_TQQQ, qty, e)
+                    logger.error('Order Failed: BUY, Symbol: %s, Notional: $%.2f, Error: %s', SYMBOL_TQQQ, budget, e)
             else:
                 logger.info('Dry Run: BUY not submitted')
         else:
