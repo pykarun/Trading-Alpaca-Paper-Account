@@ -481,7 +481,7 @@ def run_once(ema_fast: int, ema_slow: int, stop_pct: float, capital: float, live
             logger.warning('Could not read Alpaca account cash, using provided capital %.2f: %s', capital_local, e)
 
     # Execute orders if signal indicates and we are in live mode (and not dry-run)
-    if signal == 'BUY' and position_shares == 0:
+    if signal == 'BUY':
         qty = round(capital_local / tqqq_price)
         budget = qty * tqqq_price
         if qty > 0:
