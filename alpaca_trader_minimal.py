@@ -148,7 +148,11 @@ def submit_order_alpaca(symbol: str, qty: float, side: str = 'buy') -> dict:
 
 
 def get_alpaca_account_cash() -> float:
-    """Return available cash (or buying_power) from Alpaca account as float.
+    """Return available buying power from Alpaca account as float.
+
+    Uses buying_power (not cash) because it reflects the actual funds available
+    for placing orders, accounting for unsettled funds, existing positions,
+    and pending orders.
 
     Raises on HTTP/network errors. Caller should handle exceptions and fall
     back to simulated capital if necessary.
@@ -159,11 +163,12 @@ def get_alpaca_account_cash() -> float:
     resp = requests.get(url, headers=_alpaca_headers(), timeout=10)
     resp.raise_for_status()
     j = resp.json()
-    # prefer explicit cash; fallback to buying_power
-    cash = j.get('cash')
+    # prefer buying_power over cash; buying_power reflects actual available
+    # funds for orders (accounts for unsettled funds, positions, pending orders)
     bp = j.get('buying_power')
+    cash = j.get('cash')
     try:
-        return float(cash) if cash is not None else float(bp)
+        return float(bp) if bp is not None else float(cash)
     except Exception:
         # If parsing failed, raise to signal caller to fallback
         raise
