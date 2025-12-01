@@ -103,18 +103,30 @@ def get_latest_trade_from_alpaca(symbol: str) -> float:
 def submit_order_alpaca(symbol: str, qty: float, side: str = 'buy') -> dict:
     """Submit a market order to Alpaca.
     
-    For BUY orders, qty is the number of shares to purchase.
-    For SELL orders, qty is the number of shares to sell.
+    For BUY orders, qty is the number of whole shares to purchase.
+    For SELL orders, qty can include fractional shares to fully exit a position.
     """
-    qty_int = int(round(qty))
-    if qty_int <= 0:
-        raise ValueError(f'Quantity {qty} rounds to {qty_int}, cannot submit')
     if not ALPACA_API_KEY or not ALPACA_API_SECRET:
         raise RuntimeError('Alpaca credentials not configured')
+    
+    # For SELL orders, use exact quantity to fully exit position (including fractional shares)
+    # For BUY orders, use whole shares only
+    if side == 'sell':
+        # Use the exact quantity for sells to fully liquidate position
+        if qty <= 0:
+            raise ValueError(f'Quantity {qty} is invalid, cannot submit')
+        qty_str = str(qty)
+    else:
+        # For buys, use whole shares
+        qty_int = int(qty)
+        if qty_int <= 0:
+            raise ValueError(f'Quantity {qty} rounds to {qty_int}, cannot submit')
+        qty_str = str(qty_int)
+    
     url = f"{ALPACA_BASE_URL}/v2/orders"
     payload = {
         'symbol': symbol,
-        'qty': str(qty_int),
+        'qty': qty_str,
         'side': side,
         'type': 'market',
         'time_in_force': 'gtc'
@@ -486,7 +498,8 @@ def run_once(ema_fast: int, ema_slow: int, stop_pct: float, capital: float, live
 
     # Execute orders if signal indicates and we are in live mode (and not dry-run)
     if signal == 'BUY':
-        qty = round(capital_local / tqqq_price)
+        # Use floor to ensure we buy the maximum whole shares possible with available cash
+        qty = math.floor(capital_local / tqqq_price)
         budget = qty * tqqq_price
         if qty > 0:
             logger.info('=== Order Action ===\nAction: BUY, Qty: %.0f, Symbol: %s, Price: %.2f, Budget: %.2f', qty, SYMBOL_TQQQ, tqqq_price, budget)
@@ -508,9 +521,10 @@ def run_once(ema_fast: int, ema_slow: int, stop_pct: float, capital: float, live
         if position_pct < MIN_POSITION_PCT_TO_SELL:
             logger.info('=== Order Action ===\nSkipping SELL: Position %.2f%% of portfolio, cash not fully deployed', position_pct)
         else:
-            qty = round(position_shares)
+            # Sell ALL shares (including fractional) to fully exit the position
+            qty = position_shares
             if qty > 0:
-                logger.info('=== Order Action ===\nAction: SELL, Qty: %.0f, Symbol: %s, Price: %.2f', qty, SYMBOL_TQQQ, tqqq_price)
+                logger.info('=== Order Action ===\nAction: SELL, Qty: %.4f, Symbol: %s, Price: %.2f', qty, SYMBOL_TQQQ, tqqq_price)
                 if live and not dry_run:
                     order = submit_order_alpaca(SYMBOL_TQQQ, qty, side='sell')
                     logger.info('Order Submitted: SELL, ID: %s', order.get('id'))
