@@ -57,6 +57,10 @@ DEFAULT_LOOP_INTERVAL = 60
 # Fixed dollars to spend on BUY signal
 FIXED_BUY_DOLLARS = 100.0
 
+# Minimum position percentage required to execute SELL
+# Prevents selling when cash is not fully deployed
+MIN_POSITION_PCT_TO_SELL = 50.0
+
 
 def _alpaca_headers():
     return {
@@ -494,16 +498,26 @@ def run_once(ema_fast: int, ema_slow: int, stop_pct: float, capital: float, live
         else:
             logger.info('=== Order Action ===\nInsufficient cash for BUY')
     elif signal == 'SELL' and position_shares >= 0.5:
-        qty = round(position_shares)
-        if qty > 0:
-            logger.info('=== Order Action ===\nAction: SELL, Qty: %.0f, Symbol: %s, Price: %.2f', qty, SYMBOL_TQQQ, tqqq_price)
-            if live and not dry_run:
-                order = submit_order_alpaca(SYMBOL_TQQQ, qty, side='sell')
-                logger.info('Order Submitted: SELL, ID: %s', order.get('id'))
-            else:
-                logger.info('Dry Run: SELL not submitted')
+        # Calculate position value as percentage of total portfolio
+        position_value = position_shares * tqqq_price
+        total_value = capital_local + position_value
+        position_pct = (position_value / total_value * 100) if total_value > 0 else 0
+        
+        # Only sell if position is significant (above MIN_POSITION_PCT_TO_SELL)
+        # This prevents selling a small position when cash is not fully deployed
+        if position_pct < MIN_POSITION_PCT_TO_SELL:
+            logger.info('=== Order Action ===\nSkipping SELL: Position %.2f%% of portfolio, cash not fully deployed', position_pct)
         else:
-            logger.info('=== Order Action ===\nInsufficient shares to sell')
+            qty = round(position_shares)
+            if qty > 0:
+                logger.info('=== Order Action ===\nAction: SELL, Qty: %.0f, Symbol: %s, Price: %.2f', qty, SYMBOL_TQQQ, tqqq_price)
+                if live and not dry_run:
+                    order = submit_order_alpaca(SYMBOL_TQQQ, qty, side='sell')
+                    logger.info('Order Submitted: SELL, ID: %s', order.get('id'))
+                else:
+                    logger.info('Dry Run: SELL not submitted')
+            else:
+                logger.info('=== Order Action ===\nInsufficient shares to sell')
     elif signal == 'SELL' and 0 < position_shares < 0.5:
         logger.info('=== Order Action ===\nInsufficient shares to sell')
     else:
