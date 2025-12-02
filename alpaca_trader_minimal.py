@@ -61,6 +61,10 @@ FIXED_BUY_DOLLARS = 100.0
 # Prevents selling when cash is not fully deployed
 MIN_POSITION_PCT_TO_SELL = 50.0
 
+# Alpaca minimum notional amount for fractional/notional orders
+# Orders below this amount will be rejected with 422 error
+ALPACA_MIN_NOTIONAL = 1.00
+
 
 def _alpaca_headers():
     return {
@@ -114,10 +118,10 @@ def submit_order_alpaca(symbol: str, qty: float = 0, side: str = 'buy', notional
         symbol: Stock ticker symbol
         qty: Number of shares (used for SELL orders, must be > 0 when side='sell')
         side: 'buy' or 'sell'
-        notional: Dollar amount to invest (used for BUY orders, must be > 0 when side='buy')
+        notional: Dollar amount to invest (used for BUY orders, must be >= ALPACA_MIN_NOTIONAL)
     
     Raises:
-        ValueError: If notional <= 0 for BUY orders or qty <= 0 for SELL orders
+        ValueError: If notional < ALPACA_MIN_NOTIONAL for BUY orders or qty <= 0 for SELL orders
         RuntimeError: If Alpaca credentials not configured or order submission fails
     """
     if not ALPACA_API_KEY or not ALPACA_API_SECRET:
@@ -127,8 +131,9 @@ def submit_order_alpaca(symbol: str, qty: float = 0, side: str = 'buy', notional
     
     if side == 'buy':
         # Use notional (dollar-based) orders for BUY to avoid buying power issues
-        if notional <= 0:
-            raise ValueError(f'Notional amount {notional} is invalid, cannot submit BUY order')
+        # Alpaca requires minimum notional of $1.00 for fractional/notional orders
+        if notional < ALPACA_MIN_NOTIONAL:
+            raise ValueError(f'Notional amount ${notional:.2f} is below Alpaca minimum of ${ALPACA_MIN_NOTIONAL:.2f}')
         payload = {
             'symbol': symbol,
             'notional': round(notional, 2),  # Alpaca API expects numeric value
@@ -533,13 +538,15 @@ def run_once(ema_fast: int, ema_slow: int, stop_pct: float, capital: float, live
         # Alpaca will handle the exact share calculation including fractional shares
         budget = capital_local  # invest all available cash
         estimated_shares = budget / tqqq_price if tqqq_price > 0 else 0
-        if budget > 0:
+        if budget < ALPACA_MIN_NOTIONAL:
+            logger.info('=== Order Action ===\nInsufficient cash ($%.2f) for BUY, minimum notional required: $%.2f', budget, ALPACA_MIN_NOTIONAL)
+        elif budget > 0:
             logger.info('=== Order Action ===\nAction: BUY, Notional: $%.2f, Symbol: %s, Price: %.2f, Est. Shares: %.4f', budget, SYMBOL_TQQQ, tqqq_price, estimated_shares)
             if live and not dry_run:
                 try:
                     order = submit_order_alpaca(SYMBOL_TQQQ, side='buy', notional=budget)
                     logger.info('Order Submitted: BUY, ID: %s', order.get('id'))
-                except (RuntimeError, requests.exceptions.RequestException) as e:
+                except (RuntimeError, ValueError, requests.exceptions.RequestException) as e:
                     logger.error('Order Failed: BUY, Symbol: %s, Notional: $%.2f, Error: %s', SYMBOL_TQQQ, budget, e)
             else:
                 logger.info('Dry Run: BUY not submitted')
