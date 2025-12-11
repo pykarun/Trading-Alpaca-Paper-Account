@@ -468,9 +468,12 @@ def run_once(ema_fast: int, ema_slow: int, stop_pct: float, capital: float, live
     # Human-readable logs in sections
     logger.info('=== Settings Used ===\nEMA Fast: %d, EMA Slow: %d, Stop Loss: %.2f%%, Mode: %s, Loop: enabled, Interval: %d', fast_span, slow_span, stop_pct, 'live' if live else 'paper', interval)
 
+    # Log QQQ data for debugging EMA calculations
+    logger.info('=== QQQ Data (Last 5 Rows) ===\n%s', qqq[['Close', 'EMA_Fast', 'EMA_Slow']].tail())
+
     ef_str = (f"{ef:.2f}" if not math.isnan(ef) else 'nan')
     es_str = (f"{es:.2f}" if not math.isnan(es) else 'nan')
-    logger.info('=== Values Calculated ===\nEMA Fast: %s, EMA Slow: %s, EMA Signal Deviation: %s, Drawdown: %s, Signal: %s', ef_str, es_str, dev_display, current_drawdown, signal)
+    logger.info('=== Values Calculated ===\nQQQ Close: %.2f, EMA Fast: %s, EMA Slow: %s, EMA Signal Deviation: %s, Drawdown: %s, Signal: %s', qqq_close, ef_str, es_str, dev_display, current_drawdown, signal)
 
     # (compact logging) the most-recent values are included in the Analysis line above
 
