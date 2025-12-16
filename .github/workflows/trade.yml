@@ -6,8 +6,8 @@ on:
     # ET converts to 13:30-20:00 UTC (EDT) or 14:30-21:00 UTC (EST)
     # To cover both DST periods, run from 13:30-21:00 UTC, Mon-Fri
     # The Python script will do an additional check to ensure market is actually open
-    - cron: '30,0 13-20 * * 1-5'  # Every 30 minutes from 13:00-21:00 UTC, Mon-Fri
-    - cron: '0 21 * * 1-5'  # Also at 21:00 UTC to cover market close
+    - cron: '30 13-20 * * 1-5'  # At :30 of hours 13-20 UTC, Mon-Fri (every hour on the half hour)
+    - cron: '0 14-21 * * 1-5'   # At :00 of hours 14-21 UTC, Mon-Fri (every hour on the hour)
   workflow_dispatch:  # Allow manual trigger
 
 jobs:

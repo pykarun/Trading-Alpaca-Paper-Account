@@ -259,7 +259,9 @@ def is_market_open() -> bool:
             return False
         
         # Basic holiday check for major US market holidays
-        # Note: This is a simple check and doesn't cover all market holidays
+        # Note: This is a simple check and doesn't cover all market holidays or
+        # observed holidays when they fall on weekends. For production use,
+        # consider using a comprehensive holiday library like `pandas.tseries.holiday`
         month = now_et.month
         day = now_et.day
         
