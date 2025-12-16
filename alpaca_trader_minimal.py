@@ -18,6 +18,7 @@ import math
 import time
 from typing import Optional
 import os
+import pytz
 
 import pandas as pd
 import yfinance as yf
@@ -230,6 +231,59 @@ def setup_logger() -> logging.Logger:
 
 
 logger = setup_logger()
+
+
+def is_market_open() -> bool:
+    """Check if US stock market is currently open.
+    
+    Market hours: 9:30 AM - 4:00 PM ET, Monday-Friday
+    Excludes major US market holidays (not comprehensive).
+    
+    Returns:
+        True if market is open, False otherwise
+    """
+    try:
+        # Get current time in ET timezone
+        et_tz = pytz.timezone('US/Eastern')
+        now_et = datetime.datetime.now(et_tz)
+        
+        # Check if it's a weekend
+        if now_et.weekday() >= 5:  # Saturday=5, Sunday=6
+            return False
+        
+        # Check if within market hours (9:30 AM - 4:00 PM ET)
+        market_open = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+        market_close = now_et.replace(hour=16, minute=0, second=0, microsecond=0)
+        
+        if now_et < market_open or now_et >= market_close:
+            return False
+        
+        # Basic holiday check for major US market holidays
+        # WARNING: This is a BASIC check that only covers 3 major holidays and does NOT:
+        # - Handle observed holidays when they fall on weekends
+        # - Include all market holidays (MLK Day, Presidents Day, Good Friday, Memorial Day, Labor Day, Thanksgiving, etc.)
+        # For production use, consider using pandas.tseries.holiday.USFederalHolidayCalendar
+        month = now_et.month
+        day = now_et.day
+        
+        # New Year's Day (Jan 1)
+        if month == 1 and day == 1:
+            return False
+        
+        # Independence Day (July 4)
+        if month == 7 and day == 4:
+            return False
+        
+        # Christmas Day (Dec 25)
+        if month == 12 and day == 25:
+            return False
+        
+        return True
+    except Exception as e:
+        # If timezone check fails, return False to prevent unintended trading
+        # This is a safer default than allowing trading when we can't verify hours
+        logger.warning('Market hours check failed: %s. Defaulting to market closed for safety.', e)
+        return False
 
 
 def fetch_history(symbol: str, days: int = 365) -> pd.DataFrame:
@@ -609,6 +663,15 @@ def run_loop(ema_fast: int, ema_slow: int, stop_pct: float, capital: float, inte
 
 def main():
     import sys
+    
+    # Check if market is open before running
+    if not is_market_open():
+        et_tz = pytz.timezone('US/Eastern')
+        now_et = datetime.datetime.now(et_tz)
+        logger.info('Market is closed. Current time: %s ET. Market hours: 9:30 AM - 4:00 PM ET, Mon-Fri', 
+                    now_et.strftime('%Y-%m-%d %H:%M:%S %Z'))
+        return
+    
     if len(sys.argv) > 1 and sys.argv[1] == '--once':
         run_once(EMA_FAST, EMA_SLOW, STOP_LOSS_PCT, INITIAL_CAPITAL, live=True, dry_run=False)
     else:

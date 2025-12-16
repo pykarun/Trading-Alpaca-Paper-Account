@@ -31,6 +31,7 @@ This project implements an automated trading strategy that:
 pandas
 yfinance
 requests
+pytz
 ```
 
 ## Installation
@@ -43,7 +44,7 @@ requests
 
 2. Install dependencies:
    ```bash
-   pip install pandas yfinance requests
+   pip install pandas yfinance requests pytz
    ```
 
 3. Set up environment variables (see Configuration section)
