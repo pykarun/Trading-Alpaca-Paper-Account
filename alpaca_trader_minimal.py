@@ -16,7 +16,7 @@ import datetime
 import logging
 import math
 import time
-from typing import Optional
+from typing import Optional, Union
 import os
 import pytz
 
@@ -107,7 +107,7 @@ def get_latest_trade_from_alpaca(symbol: str) -> float:
         raise
 
 
-def submit_order_alpaca(symbol: str, qty: float = 0, side: str = 'buy', notional: float = 0) -> dict:
+def submit_order_alpaca(symbol: str, qty: Union[float, str, int] = 0, side: str = 'buy', notional: float = 0) -> dict:
     """Submit a market order to Alpaca.
     
     For BUY orders, use `notional` parameter to specify dollar amount to invest.
@@ -119,7 +119,8 @@ def submit_order_alpaca(symbol: str, qty: float = 0, side: str = 'buy', notional
     
     Args:
         symbol: Stock ticker symbol
-        qty: Number of shares (used for SELL orders, must be > 0 when side='sell')
+        qty: Number of shares (float, int, or str) (used for SELL orders, must be > 0 when side='sell')
+             Pass a string to preserve exact precision from Alpaca API
         side: 'buy' or 'sell'
         notional: Dollar amount to invest (used for BUY orders, must be >= ALPACA_MIN_NOTIONAL)
     
@@ -146,10 +147,27 @@ def submit_order_alpaca(symbol: str, qty: float = 0, side: str = 'buy', notional
         }
     else:
         # For SELL orders, use exact quantity to fully exit position (including fractional shares)
-        if qty <= 0:
+        # Accept float, int, or string to preserve precision
+        
+        # Validate and convert qty to float for validation
+        if not isinstance(qty, (float, int, str)):
+            raise ValueError(f'Quantity must be a float, int, or string, got {type(qty).__name__}')
+        
+        try:
+            qty_float = float(qty)
+        except (ValueError, TypeError) as e:
+            raise ValueError(f'Quantity {qty!r} cannot be converted to float: {e}') from e
+        
+        if qty_float <= 0:
             raise ValueError(f'Quantity {qty} is invalid, cannot submit SELL order')
-        # Format as decimal string to avoid scientific notation issues with API
-        qty_str = f'{qty:.8f}'.rstrip('0').rstrip('.')
+        
+        # If qty is already a string (exact from API), use it directly
+        # Otherwise format as decimal string to avoid scientific notation issues with API
+        if isinstance(qty, str):
+            qty_str = qty
+        else:
+            qty_str = f'{qty_float:.8f}'.rstrip('0').rstrip('.')
+        
         payload = {
             'symbol': symbol,
             'qty': qty_str,
@@ -537,6 +555,7 @@ def run_once(ema_fast: int, ema_slow: int, stop_pct: float, capital: float, live
 
     # Position bookkeeping via Alpaca when live, otherwise local simulated state
     position_shares = 0
+    position_shares_exact = None  # Store exact string representation from API for sell orders
     entry_price = 0.0
     peak_price: Optional[float] = None
 
@@ -547,13 +566,23 @@ def run_once(ema_fast: int, ema_slow: int, stop_pct: float, capital: float, live
             resp = requests.get(url, headers=_alpaca_headers(), timeout=10)
             if resp.status_code == 200:
                 pos = resp.json()
-                position_shares = float(pos.get('qty', 0))
+                # Store exact string representation to avoid floating-point precision issues
+                position_shares_exact = pos.get('qty', '0')
+                # Convert to float for calculations, with error handling for malformed API responses
+                try:
+                    position_shares = float(position_shares_exact) if position_shares_exact else 0
+                except (ValueError, TypeError):
+                    logger.warning('Invalid position quantity from API: %s, defaulting to 0', position_shares_exact)
+                    position_shares = 0
+                    position_shares_exact = None
                 entry_price = float(pos.get('avg_entry_price', 0.0)) if pos.get('avg_entry_price') else 0.0
                 peak_price = None
             else:
                 position_shares = 0
+                position_shares_exact = None
         except Exception:
             position_shares = 0
+            position_shares_exact = None
 
     # If we have a live position, compute and log the active stop-loss and
     # the drawdown percent so you can see how close we are to the configured SL.
@@ -625,15 +654,26 @@ def run_once(ema_fast: int, ema_slow: int, stop_pct: float, capital: float, live
             logger.info('=== Order Action ===\nSkipping SELL: Position %.2f%% of portfolio, cash not fully deployed', position_pct)
         else:
             # Sell ALL shares (including fractional) to fully exit the position
-            qty = position_shares
-            if qty > 0:
-                logger.info('=== Order Action ===\nAction: SELL, Qty: %.4f, Symbol: %s, Price: %.2f', qty, SYMBOL_TQQQ, tqqq_price)
+            # Use exact quantity string from API to avoid precision issues
+            # Validate that position_shares_exact is valid before using it
+            if position_shares_exact and isinstance(position_shares_exact, str) and position_shares_exact != '0':
+                qty = position_shares_exact
+            else:
+                # Fallback to float if string is not available or invalid
+                # Log a warning since this may have precision issues
+                qty = position_shares
+                if position_shares > 0:
+                    logger.warning('Using float quantity (%.8f) instead of exact string - may have precision issues', qty)
+            
+            qty_float = position_shares  # For display purposes
+            if qty_float > 0:
+                logger.info('=== Order Action ===\nAction: SELL, Qty: %.4f, Symbol: %s, Price: %.2f', qty_float, SYMBOL_TQQQ, tqqq_price)
                 if live and not dry_run:
                     try:
                         order = submit_order_alpaca(SYMBOL_TQQQ, qty, side='sell')
                         logger.info('Order Submitted: SELL, ID: %s', order.get('id'))
                     except (RuntimeError, requests.exceptions.RequestException) as e:
-                        logger.error('Order Failed: SELL, Symbol: %s, Qty: %.4f, Error: %s', SYMBOL_TQQQ, qty, e)
+                        logger.error('Order Failed: SELL, Symbol: %s, Qty: %.4f, Error: %s', SYMBOL_TQQQ, qty_float, e)
                 else:
                     logger.info('Dry Run: SELL not submitted')
             else:
